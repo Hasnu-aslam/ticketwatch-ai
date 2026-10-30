@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: festival-ticket-watcher
+    env: python
+    plan: free
+    region: singapore # or oregon / frankfurt
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: python -m app.main
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_PATH
+        value: booking_watcher.db
