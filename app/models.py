@@ -90,11 +90,33 @@ class TravelOption(BaseModel):
     waitlist_number: Optional[int] = None
     fare: Optional[float] = None
     booking_url: Optional[str] = None
+    prediction_percentage: Optional[float] = None
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def is_bookable(self) -> bool:
         """Returns True if the ticket is confirmed available or RAC."""
         return self.status_type in (SeatStatusType.AVAILABLE, SeatStatusType.RAC)
+
+    def is_promising_or_available(self) -> bool:
+        """
+        Returns True if:
+        1. Confirmed Available or RAC
+        2. Waitlist with good confirmation chances (prediction >= 50% or low WL <= 15)
+        Filters out low-chance waitlists (e.g. WL 80+, prediction < 50%, REGRET, etc.)
+        """
+        if self.is_bookable():
+            return True
+        if self.status_type == SeatStatusType.WAITLIST:
+            pred = self.prediction_percentage or self.extra.get("prediction_percentage")
+            if pred is not None:
+                try:
+                    return float(pred) >= 50.0
+                except (ValueError, TypeError):
+                    pass
+            # If no prediction percentage, small waitlist numbers (<= 15) have fair confirmation chance
+            if self.waitlist_number is not None:
+                return self.waitlist_number <= 15
+        return False
 
 
 class SearchQuery(BaseModel):

@@ -16,6 +16,7 @@ from telegram.ext import (
 
 from app.db import Database, Watch
 from app.diff import DiffResult
+from app.formatter import format_watch_overview
 from app.llm import LLMService
 from app.scheduler import WatchScheduler
 
@@ -143,18 +144,24 @@ class TelegramBot:
         if self.scheduler:
             try:
                 _, diffs = await self.scheduler.check_watch_now(watch.id)
-                snaps = self.db.get_latest_snapshots(watch.id)
-                available = [s for s in snaps.values() if s.status_type in ("AVAILABLE", "RAC")]
-                res_text = (
-                    f"✅ *Check complete for Watch #{watch.id}!*\n"
-                    f"Found *{len(snaps)}* matching options (*{len(available)}* bookable right now).\n"
-                )
-                if diffs:
-                    res_text += f"\n🚨 *New changes detected:* {len(diffs)}"
-                else:
-                    res_text += "\nNo new changes since last check."
+                options = self.scheduler.get_latest_options(watch.id)
+                overview = format_watch_overview(watch, options, diffs=diffs)
 
-                await status_msg.edit_text(res_text, parse_mode=ParseMode.MARKDOWN)
+                buttons = []
+                train_url = f"https://www.confirmtkt.com/rbooking-d/train-search/{watch.source}/{watch.destination}/{watch.travel_date}"
+                bus_url = f"https://www.redbus.in/bus-tickets/{watch.source.lower()}-to-{watch.destination.lower()}?date={watch.travel_date}"
+                if watch.mode in ("train", "both"):
+                    buttons.append(InlineKeyboardButton("🚆 Book Train", url=train_url))
+                if watch.mode in ("bus", "both"):
+                    buttons.append(InlineKeyboardButton("🚌 Book Bus", url=bus_url))
+
+                control_row = [
+                    InlineKeyboardButton("🔄 Refresh", callback_data=f"chk_{watch.id}"),
+                    InlineKeyboardButton("❌ Stop Watch", callback_data=f"del_{watch.id}"),
+                ]
+                keyboard = InlineKeyboardMarkup([buttons, control_row] if buttons else [control_row])
+
+                await status_msg.edit_text(overview, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
             except Exception as e:
                 logger.error("Error during manual check: %s", e)
                 await status_msg.edit_text(f"⚠️ Error running check: {e}")
@@ -187,15 +194,29 @@ class TelegramBot:
             await query.edit_message_text(f"🔍 Checking Watch #{watch_id} live...")
             if self.scheduler:
                 try:
-                    _, diffs = await self.scheduler.check_watch_now(watch_id)
-                    snaps = self.db.get_latest_snapshots(watch_id)
-                    available = [s for s in snaps.values() if s.status_type in ("AVAILABLE", "RAC")]
-                    await query.edit_message_text(
-                        f"✅ *Watch #{watch_id} refreshed!*\n"
-                        f"Tracked: {len(snaps)} options ({len(available)} bookable seats available).\n"
-                        f"Alerts triggered: {len(diffs)}",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                    watch, diffs = await self.scheduler.check_watch_now(watch_id)
+                    if not watch:
+                        await query.edit_message_text("⚠️ Watch not found.")
+                        return
+
+                    options = self.scheduler.get_latest_options(watch_id)
+                    overview = format_watch_overview(watch, options, diffs=diffs)
+
+                    buttons = []
+                    train_url = f"https://www.confirmtkt.com/rbooking-d/train-search/{watch.source}/{watch.destination}/{watch.travel_date}"
+                    bus_url = f"https://www.redbus.in/bus-tickets/{watch.source.lower()}-to-{watch.destination.lower()}?date={watch.travel_date}"
+                    if watch.mode in ("train", "both"):
+                        buttons.append(InlineKeyboardButton("🚆 Book Train", url=train_url))
+                    if watch.mode in ("bus", "both"):
+                        buttons.append(InlineKeyboardButton("🚌 Book Bus", url=bus_url))
+
+                    control_row = [
+                        InlineKeyboardButton("🔄 Refresh", callback_data=f"chk_{watch.id}"),
+                        InlineKeyboardButton("❌ Stop Watch", callback_data=f"del_{watch.id}"),
+                    ]
+                    keyboard = InlineKeyboardMarkup([buttons, control_row] if buttons else [control_row])
+
+                    await query.edit_message_text(overview, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
                 except Exception as e:
                     await query.edit_message_text(f"⚠️ Check failed: {e}")
 
@@ -258,16 +279,32 @@ class TelegramBot:
         # 5. Immediate first check
         if self.scheduler:
             try:
-                diffs = await self.scheduler.check_watch(watch)
-                if diffs:
-                    await self.send_alert(watch, diffs)
-                else:
-                    await update.message.reply_text(
-                        f"📊 Initial check done for Watch #{watch.id}. Everything is currently full or waitlisted. I'll alert you the moment a seat opens up!",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                diffs = await self.scheduler.check_watch(watch, force_bus=True)
+                options = self.scheduler.get_latest_options(watch.id)
+                overview = format_watch_overview(watch, options, diffs=diffs)
+
+                buttons = []
+                train_url = f"https://www.confirmtkt.com/rbooking-d/train-search/{watch.source}/{watch.destination}/{watch.travel_date}"
+                bus_url = f"https://www.redbus.in/bus-tickets/{watch.source.lower()}-to-{watch.destination.lower()}?date={watch.travel_date}"
+                if watch.mode in ("train", "both"):
+                    buttons.append(InlineKeyboardButton("🚆 Book Train", url=train_url))
+                if watch.mode in ("bus", "both"):
+                    buttons.append(InlineKeyboardButton("🚌 Book Bus", url=bus_url))
+
+                control_row = [
+                    InlineKeyboardButton("🔄 Refresh", callback_data=f"chk_{watch.id}"),
+                    InlineKeyboardButton("❌ Stop Watch", callback_data=f"del_{watch.id}"),
+                ]
+                keyboard = InlineKeyboardMarkup([buttons, control_row] if buttons else [control_row])
+
+                await update.message.reply_text(
+                    overview,
+                    reply_markup=keyboard,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
             except Exception as e:
                 logger.error("Error running initial check for watch #%d: %s", watch.id, e)
+                await update.message.reply_text(f"⚠️ Error running initial availability check: {e}")
 
     async def send_alert(self, watch: Watch, diffs: list[DiffResult]):
         """
@@ -278,13 +315,13 @@ class TelegramBot:
 
         text = self.llm.summarize_alert(watch, diffs)
 
-        # Build inline buttons (Booking deep links + Stop watch button)
+        # Build inline buttons (Booking deep links + Refresh + Stop watch button)
         buttons = []
-        # Find first valid booking URL among the diffs
         booking_url = next((d.option.booking_url for d in diffs if d.option.booking_url), None)
         if booking_url:
             buttons.append(InlineKeyboardButton("🎟️ Book Now", url=booking_url))
 
+        buttons.append(InlineKeyboardButton("🔄 Check Now", callback_data=f"chk_{watch.id}"))
         buttons.append(InlineKeyboardButton("❌ Stop Watch", callback_data=f"del_{watch.id}"))
         keyboard = InlineKeyboardMarkup([buttons])
 

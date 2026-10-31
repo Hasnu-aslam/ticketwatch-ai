@@ -103,6 +103,12 @@ class ConfirmTktTrainFetcher(BaseFetcher):
 
                     # Confirmation prediction percentage if available
                     pred_pct = cls_info.get("PredictionPercentage")
+                    parsed_pred: Optional[float] = None
+                    if pred_pct is not None:
+                        try:
+                            parsed_pred = float(pred_pct)
+                        except (ValueError, TypeError):
+                            parsed_pred = None
 
                     # Create unique stable identifier for this train class and quota
                     option_id = f"TRAIN_{train_num}_{cls_name}_{quota}"
@@ -125,9 +131,10 @@ class ConfirmTktTrainFetcher(BaseFetcher):
                         available_seats=seats,
                         waitlist_number=wl,
                         fare=fare,
+                        prediction_percentage=parsed_pred,
                         booking_url=f"https://www.confirmtkt.com/train-running-status/{train_num}",
                         extra={
-                            "prediction_percentage": pred_pct,
+                            "prediction_percentage": parsed_pred,
                             "train_name": train_name,
                             "from_station_name": t.get("fromStnName"),
                             "to_station_name": t.get("toStnName"),

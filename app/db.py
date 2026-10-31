@@ -20,7 +20,7 @@ class Watch(BaseModel):
     is_active: bool = True
     last_checked_at: Optional[str] = None
     last_alerted_at: Optional[str] = None
-    created_at: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class Snapshot(BaseModel):

@@ -96,11 +96,16 @@ class LLMService:
             try:
                 diff_summaries = [f"- {d.message} (Booking: {d.option.booking_url})" for d in diffs[:4]]
                 prompt = f"""
-                Write a 2-3 line enthusiastic travel ticket alert for a Telegram notification.
+                Write a 2-3 line travel ticket alert for a Telegram notification.
                 Route: {watch.source} to {watch.destination} on {watch.travel_date}.
                 Changes detected:
                 {chr(10).join(diff_summaries)}
-                Keep it short, clear, and action-oriented. Include key train/bus names and seat counts.
+                Formatting guidelines:
+                - Use 🟢 for newly opened seats or RAC seats.
+                - Use 🔴 if seats sold out.
+                - State Train/Bus Name, Category (Class), and number of available seats.
+                - Do not mention low-chance waitlists.
+                - Keep it concise, punchy, and action-oriented.
                 """
                 resp = self._client.models.generate_content(
                     model="gemini-2.5-flash",
@@ -114,8 +119,11 @@ class LLMService:
         # Template-based fallback
         lines = [f"🚨 *TICKET ALERT:* {watch.source} ➔ {watch.destination} ({watch.travel_date})\n"]
         for d in diffs[:5]:
-            icon = "🟢" if d.is_urgent else "ℹ️"
-            lines.append(f"{icon} {d.message}")
+            msg = d.message
+            if not any(msg.startswith(prefix) for prefix in ("🟢", "🔴", "🎫", "⚠️", "📉", "🎉", "📈")):
+                icon = "🟢" if d.option.is_bookable() else ("🔴" if d.option.status_type in (SeatStatusType.NOT_AVAILABLE, SeatStatusType.REGRET) else "ℹ️")
+                msg = f"{icon} {msg}"
+            lines.append(msg)
 
         if len(diffs) > 5:
             lines.append(f"\n_...and {len(diffs) - 5} more updates._")

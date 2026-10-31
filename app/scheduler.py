@@ -151,10 +151,15 @@ class WatchScheduler:
             except Exception as e:
                 logger.error("Error fetching trains for watch #%d: %s", watch.id, e)
 
-        # 2. Fetch Buses (TNSTC government + Private Buses)
-        run_bus = self.should_run_bus_sweep_now(force=force_bus)
+        # 2. Check previous snapshots (to know if this is the initial check)
+        previous_snapshots = self.db.get_latest_snapshots(watch.id)
+        is_initial = len(previous_snapshots) == 0
+
+        # 3. Fetch Buses (TNSTC government + Private Buses)
+        # Always run buses if force_bus=True, or on initial watch scan, or during 4x daily sweep windows
+        run_bus = self.should_run_bus_sweep_now(force=force_bus) or is_initial
         if watch.mode in ("bus", "both") and run_bus:
-            # 2a. Fetch TNSTC / SETC government buses
+            # 3a. Fetch TNSTC / SETC government buses
             try:
                 tnstc_opts = await self.tnstc_fetcher.search(query)
                 options.extend(tnstc_opts)
@@ -162,17 +167,13 @@ class WatchScheduler:
             except Exception as e:
                 logger.error("Error fetching TNSTC for watch #%d: %s", watch.id, e)
 
-            # 2b. Fetch Private Buses via Playwright / RedBus
+            # 3b. Fetch Private Buses via Playwright / RedBus
             try:
                 pvt_opts = await self.private_bus_fetcher.search(query)
                 options.extend(pvt_opts)
                 logger.info("Found %d private bus options", len(pvt_opts))
             except Exception as e:
                 logger.error("Error fetching private buses for watch #%d: %s", watch.id, e)
-
-        # 3. Retrieve previous snapshots
-        previous_snapshots = self.db.get_latest_snapshots(watch.id)
-        is_initial = len(previous_snapshots) == 0
 
         # 4. Compute actionable diffs
         diffs = self.diff_engine.compute_diffs(
@@ -220,6 +221,20 @@ class WatchScheduler:
             return None, []
         diffs = await self.check_watch(watch, force_bus=True)
         return watch, diffs
+
+    def get_latest_options(self, watch_id: int) -> list[TravelOption]:
+        """
+        Reconstructs the latest TravelOption objects from the DB snapshot store.
+        """
+        snaps = self.db.get_latest_snapshots(watch_id)
+        options: list[TravelOption] = []
+        for s in snaps.values():
+            if s.raw_payload:
+                try:
+                    options.append(TravelOption.model_validate_json(s.raw_payload))
+                except Exception:
+                    pass
+        return options
 
     async def run_once(self) -> dict[int, list[DiffResult]]:
         active_watches = self.db.get_active_watches()
