@@ -158,7 +158,7 @@ def format_watch_overview(
         lines.append("🚌 *GOVERNMENT BUSES (TNSTC / SETC)*")
         lines.append("━" * 28)
         if not govt_buses:
-            lines.append("ℹ️ _Scanning scheduled for next sweep window._")
+            lines.append("🔴 *No direct services found on TNSTC portal.*")
         else:
             # Sort available first
             sorted_govt = sorted(govt_buses, key=lambda x: (not x.is_bookable(), x.departure_time))
@@ -173,7 +173,7 @@ def format_watch_overview(
         lines.append("🚌 *PRIVATE BUSES (RedBus / Operators)*")
         lines.append("━" * 28)
         if not private_buses:
-            lines.append("ℹ️ _Scanning scheduled for next sweep window._")
+            lines.append("ℹ️ _Automated scan unavailable due to bot protection._")
         else:
             sorted_pvt = sorted(private_buses, key=lambda x: (not x.is_bookable(), x.departure_time))
             for b in sorted_pvt[:max_buses]:

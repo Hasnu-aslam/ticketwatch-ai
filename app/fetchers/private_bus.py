@@ -63,10 +63,10 @@ class PrivateBusFetcher(BaseFetcher):
                 logger.info("Playwright scraped %d private buses for %s ➔ %s", len(live_options), query.source, query.destination)
                 return live_options
         except Exception as e:
-            logger.warning("Playwright live scrape encountered issue: %s. Using robust fallback schedule.", e)
+            logger.warning("Playwright live scrape encountered issue: %s", e)
 
-        # Fallback if page blocks or times out
-        return self._generate_fallback_options(query, search_url)
+        # Never return fake/simulated data
+        return []
 
     async def _scrape_with_playwright(self, query: SearchQuery, search_url: str) -> list[TravelOption]:
         from playwright.async_api import async_playwright
@@ -198,58 +198,4 @@ class PrivateBusFetcher(BaseFetcher):
                     booking_url=search_url,
                 )
             )
-        return options
-
-    def _generate_fallback_options(self, query: SearchQuery, search_url: str) -> list[TravelOption]:
-        seed_str = f"PRIVATE_{query.source}_{query.destination}_{query.travel_date}"
-        seed_int = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
-        rng = random.Random(seed_int)
-
-        options: list[TravelOption] = []
-        for idx, sched in enumerate(DEFAULT_PRIVATE_OPERATORS):
-            operator = sched["name"]
-            bus_type = sched["type"]
-            dep_time = sched["dep"]
-            arr_time = sched["arr"]
-            base_fare = sched["fare"]
-
-            price_factor = rng.uniform(0.95, 1.25)
-            fare = round(base_fare * price_factor, -1)
-
-            available_seats = rng.randint(0, 18)
-            if available_seats == 0:
-                status_type = SeatStatusType.NOT_AVAILABLE
-                status_detail = "SOLD OUT"
-            elif available_seats < 5:
-                status_type = SeatStatusType.AVAILABLE
-                status_detail = f"FEW SEATS LEFT ({available_seats})"
-            else:
-                status_type = SeatStatusType.AVAILABLE
-                status_detail = f"AVAILABLE ({available_seats} seats)"
-
-            sanitized_op = "".join(c for c in operator if c.isalnum())
-            dep_clean = dep_time.replace(":", "")
-            option_id = f"BUS_PVT_{sanitized_op}_{dep_clean}_{idx}"
-
-            options.append(
-                TravelOption(
-                    id=option_id,
-                    mode=TravelMode.BUS,
-                    operator_name=operator,
-                    source=query.source.title(),
-                    destination=query.destination.title(),
-                    travel_date=query.travel_date,
-                    departure_time=dep_time,
-                    arrival_time=arr_time,
-                    duration="08h 45m",
-                    travel_class=bus_type,
-                    status_type=status_type,
-                    status_detail=status_detail,
-                    available_seats=available_seats,
-                    fare=fare,
-                    booking_url=search_url,
-                    extra={"bus_type": bus_type},
-                )
-            )
-
         return options
